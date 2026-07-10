@@ -127,7 +127,7 @@ void sptrsv_syncfree_cuda_executor_update(const int*         d_cscColPtr,
     int global_x_id = 0;
     if (!lane_id)
         global_x_id = atomicAdd(d_id_extractor, 1);
-    global_x_id = __shfl(global_x_id, 0);
+    global_x_id = __shfl_sync(__activemask(), global_x_id, 0);
 
     if (global_x_id >= m) return;
 
@@ -144,7 +144,7 @@ void sptrsv_syncfree_cuda_executor_update(const int*         d_cscColPtr,
 
     // Consumer
     do {
-        __threadfence_block();
+        __threadfence();
     }
     while (d_graphInDegree[global_x_id] != 1);
 
@@ -309,7 +309,7 @@ void sptrsm_syncfree_cuda_executor_update(const int* __restrict__        d_cscCo
     int global_x_id = 0;
     if (!lane_id)
         global_x_id = atomicAdd(d_id_extractor, 1);
-    global_x_id = __shfl(global_x_id, 0);
+    global_x_id = __shfl_sync(__activemask(), global_x_id, 0);
 
     if (global_x_id >= m) return;
 
@@ -326,7 +326,7 @@ void sptrsm_syncfree_cuda_executor_update(const int* __restrict__        d_cscCo
 
     // Consumer
     do {
-        __threadfence_block();
+        __threadfence();
     }
     while (1 != d_graphInDegree[global_x_id]);
   
