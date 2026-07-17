@@ -4,8 +4,7 @@
 #include "tranpose.h"
 #include "findlevel.h"
 
-#include "sptrsv_syncfree_serialref.h"
-#include "sptrsv_syncfree_cuda.h"
+#include "sptrsv_cusparse.h"
 
 int main(int argc, char ** argv)
 {
@@ -36,9 +35,9 @@ int main(int argc, char ** argv)
     VALUE_TYPE *csrValA;
 
     int nnzTR;
-    int *cscRowIdxTR;
-    int *cscColPtrTR;
-    VALUE_TYPE *cscValTR;
+    int *csrRowPtrTR;
+    int *csrColIdxTR;
+    VALUE_TYPE *csrValTR;
 
     int device_id = 0;
     int rhs = 0;
@@ -175,114 +174,27 @@ int main(int argc, char ** argv)
         csrColIdx_tmp = (int *)realloc(csrColIdx_tmp, sizeof(int) * nnzTR);
         csrVal_tmp = (VALUE_TYPE *)realloc(csrVal_tmp, sizeof(VALUE_TYPE) * nnzTR);
 
-        cscRowIdxTR = (int *)malloc(nnzTR * sizeof(int));
-        cscColPtrTR = (int *)malloc((n+1) * sizeof(int));
-        memset(cscColPtrTR, 0, (n+1) * sizeof(int));
-        cscValTR    = (VALUE_TYPE *)malloc(nnzTR * sizeof(VALUE_TYPE));
-
-        // transpose from csr to csc
-        matrix_transposition(m, n, nnzTR,
-                             csrRowPtr_tmp, csrColIdx_tmp, csrVal_tmp,
-                             cscRowIdxTR, cscColPtrTR, cscValTR);
-
-        // keep each column sort 
-        for (int i = 0; i < n; i++)
-        {
-            quick_sort_key_val_pair<int, int>(&cscRowIdxTR[cscColPtrTR[i]],
-                                              &cscRowIdxTR[cscColPtrTR[i]],
-                                              cscColPtrTR[i+1]-cscColPtrTR[i]);
-        }
-
-        // check unit diagonal
-        int dia_miss = 0;
-        for (int i = 0; i < n; i++)
-        {
-            bool miss;
-            if (substitution == SUBSTITUTION_FORWARD)
-                miss = cscRowIdxTR[cscColPtrTR[i]] != i;
-            else if (substitution == SUBSTITUTION_BACKWARD)
-                cscRowIdxTR[cscColPtrTR[i+1] - 1] != i;
-
-            if (miss) dia_miss++;
-        }
-        //printf("dia miss = %i\n", dia_miss);
-        if (dia_miss != 0) 
-        {
-            printf("This matrix has incomplete diagonal, #missed dia nnz = %i\n", dia_miss); 
-            return;
-        }
-
-        free(csrColIdx_tmp);
-        free(csrVal_tmp);
-        free(csrRowPtr_tmp);
+        csrRowPtrTR = csrRowPtr_tmp;
+        csrColIdxTR = csrColIdx_tmp;
+        csrValTR    = csrVal_tmp;
 
         free(csrColIdxA);
         free(csrValA);
         free(csrRowPtrA);
-    }
-    else if (strcmp(matstr, "-csc") == 0)
-    {
-        FILE *f;
-        int returnvalue;
 
-        if ((f = fopen(filename, "r")) == NULL)
-            return -1;
+        sortCSRRows( n, csrRowPtrTR, csrColIdxTR, csrValTR );
 
-        returnvalue = fscanf(f, "%d", &m);
-        returnvalue = fscanf(f, "%d", &n);
-        returnvalue = fscanf(f, "%d", &nnzTR);
-
-        cscColPtrTR = (int *)malloc((n+1) * sizeof(int));
-        memset(cscColPtrTR, 0, (n+1) * sizeof(int));
-        cscRowIdxTR = (int *)malloc(nnzTR * sizeof(int));
-        cscValTR    = (VALUE_TYPE *)malloc(nnzTR * sizeof(VALUE_TYPE));
-
-        // read row idx
-        for (int i = 0; i < n+1; i++)
-        {
-            returnvalue = fscanf(f, "%d", &cscColPtrTR[i]);
-            cscColPtrTR[i]--; // from 1-based to 0-based
-        }
-
-        // read col idx
-        for (int i = 0; i < nnzTR; i++)
-        {
-            returnvalue = fscanf(f, "%d", &cscRowIdxTR[i]);
-            cscRowIdxTR[i]--; // from 1-based to 0-based
-        }
-
-        // read val
-        for (int i = 0; i < nnzTR; i++)
-        {
-            cscValTR[i] = rand() % 10 + 1;
-            //returnvalue = fscanf(f, "%lg", &cscValTR[i]);
-        }
-
-        if (f != stdin)
-            fclose(f);
-
-        // keep each column sort 
-        for (int i = 0; i < n; i++)
-        {
-            quick_sort_key_val_pair<int, int>(&cscRowIdxTR[cscColPtrTR[i]],
-                                              &cscRowIdxTR[cscColPtrTR[i]],
-                                              cscColPtrTR[i+1]-cscColPtrTR[i]);
-        }
-
-        if (substitution == SUBSTITUTION_FORWARD)
-            printf("Input csc unit-lower triangular L: ( %i, %i ) nnz = %i\n", m, n, nnzTR);
-        else if (substitution == SUBSTITUTION_BACKWARD)
-            printf("Input csc unit-upper triangular U: ( %i, %i ) nnz = %i\n", m, n, nnzTR);
-       
         // check unit diagonal
         int dia_miss = 0;
         for (int i = 0; i < n; i++)
         {
             bool miss;
             if (substitution == SUBSTITUTION_FORWARD)
-                miss = cscRowIdxTR[cscColPtrTR[i]] != i;
+               // Lower triangular: diagonal should be the last entry in the row.
+               miss = csrColIdxTR[csrRowPtrTR[i + 1] - 1] != i;
             else if (substitution == SUBSTITUTION_BACKWARD)
-                cscRowIdxTR[cscColPtrTR[i+1] - 1] != i;
+               // Upper triangular: diagonal should be the first entry in the row.
+               miss = csrColIdxTR[csrRowPtrTR[i]] != i;
 
             if (miss) dia_miss++;
         }
@@ -292,18 +204,21 @@ int main(int argc, char ** argv)
             printf("This matrix has incomplete diagonal, #missed dia nnz = %i\n", dia_miss); 
             return;
         }
+
     }
+
 
     // find level sets
     int nlevel = 0;
     int parallelism_min = 0;
     int parallelism_avg = 0;
     int parallelism_max = 0;
-    findlevel_csc(cscColPtrTR, cscRowIdxTR, cscValTR, m, n, nnzTR, &nlevel,
+    findlevel_csr(csrRowPtrTR, csrColIdxTR, csrValTR, m, n, nnzTR, &nlevel,
                   &parallelism_min, &parallelism_avg, &parallelism_max);
     double fparallelism = (double)m/(double)nlevel;
     printf("This matrix/graph has %i levels, its parallelism is %4.2f (min: %i ; avg: %i ; max: %i )\n", 
            nlevel, fparallelism, parallelism_min, parallelism_avg, parallelism_max);
+
 
     // x and b are all row-major
     VALUE_TYPE *x_ref = (VALUE_TYPE *)malloc(sizeof(VALUE_TYPE) * n * rhs);
@@ -320,23 +235,27 @@ int main(int argc, char ** argv)
     for (int i = 0; i < n * rhs; i++)
         x[i] = 0;
 
-    // run csc spmv to generate b
-    for (int i = 0; i < n; i++)
+    // run CSR SpMV to generate b
+    for (int row = 0; row < m; row++)
     {
-        for (int j = cscColPtrTR[i]; j < cscColPtrTR[i+1]; j++)
-        {
-            int rowid = cscRowIdxTR[j]; //printf("rowid = %i\n", rowid);
-            for (int k = 0; k < rhs; k++)
-            {
-                b[rowid * rhs + k] += cscValTR[j] * x_ref[i * rhs + k];
-            }
-        }
+       for (int j = csrRowPtrTR[row]; j < csrRowPtrTR[row + 1]; j++)
+       {
+          int col = csrColIdxTR[j];
+
+          for (int k = 0; k < rhs; k++)
+          {
+             b[row * rhs + k] +=
+                csrValTR[j] * x_ref[col * rhs + k];
+          }
+       }
     }
 
+
+
     // run serial syncfree SpTRSV as a reference
-    printf("---------------------------------------------------------------------------------------------\n");
-    sptrsv_syncfree_serialref(cscColPtrTR, cscRowIdxTR, cscValTR, m, n, nnzTR,
-                              substitution, rhs, x, b, x_ref);
+    //printf("---------------------------------------------------------------------------------------------\n");
+    //sptrsv_syncfree_serialref(cscColPtrTR, cscRowIdxTR, cscValTR, m, n, nnzTR,
+     //                         substitution, rhs, x, b, x_ref);
 
     // set device
     cudaSetDevice(device_id);
@@ -346,19 +265,26 @@ int main(int argc, char ** argv)
     printf("---------------------------------------------------------------------------------------------\n");
     printf("Device [ %i ] %s @ %4.2f MHz\n", device_id, deviceProp.name, deviceProp.clockRate * 1e-3f);
 
-    // run cuda syncfree SpTRSV or SpTRSM
-
+    // run cusparse SpTM
     printf("---------------------------------------------------------------------------------------------\n");
-    double gflops_autotuned = 0;
-    sptrsv_syncfree_cuda(cscColPtrTR, cscRowIdxTR, cscValTR, m, n, nnzTR,
-                         substitution, rhs, OPT_WARP_AUTO, x, b, x_ref, &gflops_autotuned);
+    triangularSolve(
+          n,
+          nnzTR,
+          csrRowPtrTR,
+          csrColIdxTR,
+          csrValTR,
+          b,
+          x,
+          substitution == SUBSTITUTION_FORWARD,
+          substitution == SUBSTITUTION_BACKWARD );
+
 
     printf("---------------------------------------------------------------------------------------------\n");
 
     // done!
-    free(cscRowIdxTR);
-    free(cscColPtrTR);
-    free(cscValTR);
+    free(csrColIdxTR);
+    free(csrRowPtrTR);
+    free(csrValTR);
 
     free(x);
     free(x_ref);

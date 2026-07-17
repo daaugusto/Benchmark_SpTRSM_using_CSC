@@ -15,7 +15,7 @@ INCLUDES = -I$(CUDA_INSTALL_PATH)/include
 
 #libs
 #CLANG_LIBS = -stdlib=libstdc++ -lstdc++
-CUDA_LIBS = -L$(CUDA_INSTALL_PATH)/lib64  -lcudart
+CUDA_LIBS = -L$(CUDA_INSTALL_PATH)/lib64  -lcudart -lcusparse
 LIBS = $(CUDA_LIBS)
 
 #options

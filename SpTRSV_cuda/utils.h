@@ -4,6 +4,9 @@
 #include "common.h"
 #include "cusparse.h"
 
+#include <algorithm>
+#include <vector>
+
 // print 1D array
 template<typename T>
 void print_1darray(T *input, int length)
@@ -364,6 +367,38 @@ T reduce_sum(T *input, int length)
     }
 
     return sum;
+}
+
+template<typename T>
+void sortCSRRows(
+      int n,
+      const int* csrRowPtr,
+      int* csrColIdx,
+      T* csrVal)
+{
+   for (int row = 0; row < n; row++)
+   {
+      int begin = csrRowPtr[row];
+      int end   = csrRowPtr[row + 1];
+
+      std::vector<std::pair<int, T>> entries;
+      entries.reserve(end - begin);
+
+      for (int p = begin; p < end; p++)
+         entries.emplace_back(csrColIdx[p], csrVal[p]);
+
+      std::sort(entries.begin(), entries.end(),
+            [](const auto& a, const auto& b)
+            {
+            return a.first < b.first;
+            });
+
+      for (int p = begin, k = 0; p < end; p++, k++)
+      {
+         csrColIdx[p] = entries[k].first;
+         csrVal[p]    = entries[k].second;
+      }
+   }
 }
 
 #endif
