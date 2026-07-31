@@ -4,6 +4,7 @@
 #include "common.h"
 #include "utils.h"
 #include <cuda_runtime.h>
+#include <cuda/atomic>
 
 __global__
 void sptrsv_syncfree_cuda_analyser(const int   *d_cscRowIdx,
@@ -143,14 +144,16 @@ void sptrsv_syncfree_cuda_executor_update(const int*         d_cscColPtr,
     //asm("prefetch.global.L2 [%0];"::"r"(d_cscRowIdx[d_cscColPtr[global_x_id] + 1 + lane_id]));
 
     // ### Consumer
-    // Technically we could just do "while (d_graphInDegree[global_x_id]!=1)" here, but CUDA
-    // does not guarantee that mixing atomic and non-atomic accesses to the same location is well-defined.
-    // So it is preferable to use an "additive identity" atomicAdd instead:
-    while ( atomicAdd( &d_graphInDegree[ global_x_id ], 0 ) != 1 )
+    cuda::atomic_ref<int, cuda::thread_scope_device> indegree( d_graphInDegree[global_x_id] );
+    while ( indegree.load(cuda::memory_order_acquire) != 1 )
        ;
 
     VALUE_TYPE xi = d_left_sum[global_x_id];
     xi = (d_b[global_x_id] - xi) * coef;
+
+    //volatile VALUE_TYPE *left_sum = d_left_sum;
+    //VALUE_TYPE xi = left_sum[global_x_id];
+    //xi = (d_b[global_x_id] - xi) * coef;
 
     // Producer
     const int start_ptr = substitution == SUBSTITUTION_FORWARD ? 
@@ -163,8 +166,9 @@ void sptrsv_syncfree_cuda_executor_update(const int*         d_cscColPtr,
         const int rowIdx = d_cscRowIdx[j];
 
         atomicAdd(&d_left_sum[rowIdx], xi * d_cscVal[j]);
-        __threadfence();
-        atomicSub(&d_graphInDegree[rowIdx], 1);
+
+        cuda::atomic_ref<int, cuda::thread_scope_device> indegree( d_graphInDegree[rowIdx] );
+        indegree.fetch_sub( 1, cuda::memory_order_release );
     }
 
     //finish
