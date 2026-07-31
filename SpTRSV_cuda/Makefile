@@ -5,7 +5,7 @@ CC=nvcc
 VALUE_TYPE = double
 
 #CUDA_PARAMETERS
-NVCC_FLAGS = -O3 -w -m64 -Xptxas -dlcm=cg -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_89,code=compute_89
+NVCC_FLAGS = -O3 -w -m64 -Xptxas -dlcm=cg -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_90,code=sm_90 -gencode=arch=compute_90,code=compute_90
 
 #ENVIRONMENT_PARAMETERS
 CUDA_INSTALL_PATH = /usr/lib/cuda
