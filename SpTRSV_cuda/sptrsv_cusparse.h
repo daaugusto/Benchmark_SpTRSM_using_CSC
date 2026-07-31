@@ -75,6 +75,12 @@ void triangularSolve(
     //-----------------------------------------------------------------
     // Create sparse matrix descriptor
     //-----------------------------------------------------------------
+    cudaDeviceSynchronize();
+
+    printf(" - cusparse SpTRSV analysis start!\n");
+    struct timeval t1, t2;
+    gettimeofday(&t1, NULL);
+
 
     cusparseSpMatDescr_t matA;
 
@@ -171,12 +177,6 @@ void triangularSolve(
     // Analysis
     //-----------------------------------------------------------------
 
-    cudaDeviceSynchronize();
-
-    printf(" - cusparse SpTRSV analysis start!\n");
-    struct timeval t1, t2;
-    gettimeofday(&t1, NULL);
-
     CHECK_CUSPARSE(
         cusparseSpSM_analysis(
             handle,
@@ -217,11 +217,6 @@ void triangularSolve(
             CUSPARSE_SPSM_ALG_DEFAULT,
             spsmDescr));
 
-    CHECK_CUDA(cudaMemcpy(solution,
-                          dX,
-                          n*sizeof(double),
-                          cudaMemcpyDeviceToHost));
-
     cudaDeviceSynchronize();
     gettimeofday(&t2, NULL);
 
@@ -229,6 +224,12 @@ void triangularSolve(
     time_cuda_solve /= BENCH_REPEAT;
 
     printf("cusparse SpTRSV solve used %4.2f ms\n", time_cuda_solve);
+
+    CHECK_CUDA(cudaMemcpy(solution,
+                          dX,
+                          n*sizeof(double),
+                          cudaMemcpyDeviceToHost));
+    cudaDeviceSynchronize();
 
     //-----------------------------------------------------------------
     // Cleanup
