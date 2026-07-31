@@ -142,11 +142,12 @@ void sptrsv_syncfree_cuda_executor_update(const int*         d_cscColPtr,
     //asm("prefetch.global.L2 [%0];"::"d"(d_cscVal[d_cscColPtr[global_x_id] + 1 + lane_id]));
     //asm("prefetch.global.L2 [%0];"::"r"(d_cscRowIdx[d_cscColPtr[global_x_id] + 1 + lane_id]));
 
-    // Consumer
-    do {
-        __threadfence();
-    }
-    while (d_graphInDegree[global_x_id] != 1);
+    // ### Consumer
+    // Technically we could just do "while (d_graphInDegree[global_x_id]!=1)" here, but CUDA
+    // does not guarantee that mixing atomic and non-atomic accesses to the same location is well-defined.
+    // So it is preferable to use an "additive identity" atomicAdd instead:
+    while ( atomicAdd( &d_graphInDegree[ global_x_id ], 0 ) != 1 )
+       ;
 
     VALUE_TYPE xi = d_left_sum[global_x_id];
     xi = (d_b[global_x_id] - xi) * coef;
